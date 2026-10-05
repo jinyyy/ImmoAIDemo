@@ -1,0 +1,289 @@
+﻿@page "/"
+@using Immo24AiDemo
+@rendermode InteractiveServer
+@inject IApplicationRepository Repo
+@inject IApplicantScoringPipeline Pipeline
+
+<PageTitle>Immo24 KI-Bewerber-Scoring</PageTitle>
+
+<div class="container py-4">
+    <!-- Header & Exposé-Kontext -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="badge bg-dark font-monospace">@ListingId</span>
+                <span class="badge bg-primary-subtle text-primary border border-primary-subtle">
+                    KI-Scoring aktiv
+                </span>
+            </div>
+            <h3 class="fw-bold mb-0">Helle 3-Zimmer-Altbauwohnung mit Balkon</h3>
+            <small class="text-muted">Warmmiete: 1.350 € | Max. 3 Personen | Haustiere: Nein</small>
+        </div>
+
+        <!-- KPI Summary & Live-Simulator Button -->
+        <div class="d-flex align-items-center gap-2 mt-3 mt-md-0">
+            <button class="btn btn-primary btn-sm me-2 shadow-sm" @onclick="SimulateIncomingApplicantAsync"
+                    disabled="@_isSimulating">
+                @(_isSimulating ? "KI analysiert..." : "+ Live-Bewerbung simulieren")
+            </button>
+            <div class="px-3 py-2 bg-light rounded border text-center">
+                <div class="fs-5 fw-bold">@_applicants.Count</div>
+                <div class="small text-muted">Bewerber</div>
+            </div>
+            <div
+                class="px-3 py-2 bg-success-subtle text-success-emphasis rounded border border-success-subtle text-center">
+                <div class="fs-5 fw-bold">@_applicants.Count(a => a.Recommendation == RecommendationTier.TopCandidate)
+                </div>
+                <div class="small">Top-Matches</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filter- & Suchleiste -->
+    <div class="row g-2 mb-4 align-items-center">
+        <div class="col-md-7">
+            <div class="btn-group btn-group-sm" role="group">
+                <button type="button" class="btn @GetFilterBtnClass(null)" @onclick="() => _selectedTier = null">
+                    Alle (@_applicants.Count)
+                </button>
+                <button type="button" class="btn @GetFilterBtnClass(RecommendationTier.TopCandidate)"
+                        @onclick="() => _selectedTier = RecommendationTier.TopCandidate">
+                    Top-Kandidaten (@_applicants.Count(a => a.Recommendation == RecommendationTier.TopCandidate))
+                </button>
+                <button type="button" class="btn @GetFilterBtnClass(RecommendationTier.ReviewManually)"
+                        @onclick="() => _selectedTier = RecommendationTier.ReviewManually">
+                    Manuell prüfen (@_applicants.Count(a => a.Recommendation == RecommendationTier.ReviewManually))
+                </button>
+                <button type="button" class="btn @GetFilterBtnClass(RecommendationTier.AutoReject)"
+                        @onclick="() => _selectedTier = RecommendationTier.AutoReject">
+                    Aussortiert (@_applicants.Count(a => a.Recommendation == RecommendationTier.AutoReject))
+                </button>
+            </div>
+        </div>
+        <div class="col-md-5">
+            <input type="search" class="form-control form-control-sm" placeholder="Bewerber oder Stichwort suchen..."
+                   @bind="_searchTerm" @bind:event="oninput" />
+        </div>
+    </div>
+
+    <!-- Ranking List -->
+    <div class="d-flex flex-column gap-3">
+        @{
+            int rank = 1;
+        }
+        @foreach (var app in FilteredApplicants)
+        {
+            bool isExpanded = _expandedIds.Contains(app.ApplicationId);
+
+            <div class="card shadow-sm border-0 border-start border-4 @GetBorderColor(app.Recommendation)">
+                <div class="card-body">
+                    <div class="row align-items-center gy-3">
+                        <div class="col-md-4 d-flex align-items-center gap-3">
+                            <div class="rounded-circle bg-light border d-flex align-items-center justify-content-center fw-bold text-secondary"
+                                 style="width: 42px; height: 42px; flex-shrink: 0;">
+                                #@rank
+                            </div>
+                            <div>
+                                <h5 class="mb-1 fw-semibold d-flex align-items-center gap-2">
+                                    @app.ApplicantName
+                                    @RenderTierBadge(app.Recommendation)
+                                </h5>
+                                <div class="small text-muted">
+                                    Eingegangen: @app.EvaluatedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss")
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-5">
+                            <div class="row text-center g-2">
+                                <div class="col-4">
+                                    <div class="p-2 rounded bg-light">
+                                        <div class="small text-muted">Hard Facts</div>
+                                        <span class="fw-bold @GetScoreTextColor(app.HardFactsScore)">@app.HardFactsScore /
+                                            100</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="p-2 rounded bg-light">
+                                            <div class="small text-muted">KI-Soft-Score</div>
+                                            <span class="fw-bold @GetScoreTextColor(app.AiSoftScore)">@app.AiSoftScore /
+                                                100</span>
+                                            </div>
+                                        </div>
+                                        <div class="col-4">
+                                            <div class="p-2 rounded bg-light">
+                                                <div class="small text-muted">Mietquote</div>
+                                                <span
+                                                    class="fw-bold @(app.RentToIncomeRatio <= 30 ? "text-success" : app.RentToIncomeRatio <= 40 ? "text-warning" : "text-danger")">
+                                                    @app.RentToIncomeRatio.ToString("0.0") %
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div
+                                    class="col-md-3 d-flex align-items-center justify-content-md-end justify-content-between gap-3">
+                                    <div class="text-end">
+                                        <div class="small text-muted">Gesamt-Score</div>
+                                        <span class="badge fs-5 @GetScoreBadgeClass(app.TotalScore)">
+                                            @app.TotalScore %
+                                        </span>
+                                    </div>
+
+                                    <button class="btn btn-sm btn-outline-secondary"
+                                            @onclick="() => ToggleDetails(app.ApplicationId)">
+                                        @(isExpanded ? "Details ▲" : "KI-Analyse ▼")
+                                    </button>
+                                </div>
+                            </div>
+
+                            @if (isExpanded)
+                            {
+                                <div class="mt-3 pt-3 border-top bg-light-subtle rounded p-3">
+                                    <div class="mb-2">
+                                        <strong class="small text-uppercase text-muted">KI-Zusammenfassung:</strong>
+                                        <p class="mb-2 mt-1">@app.AiInsights.Summary</p>
+                                    </div>
+
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <div class="small fw-bold text-success mb-1">✓ Extrahierte Highlights</div>
+                                            @if (app.AiInsights.ExtractedHighlights.Any())
+                                            {
+                                                <ul class="small mb-0 ps-3">
+                                                    @foreach (var h in app.AiInsights.ExtractedHighlights)
+                                                    {
+                                                        <li>@h</li>
+                                                    }
+                                                </ul>
+                                            }
+                                            else
+                                            {
+                                                <span class="small text-muted fst-italic">Keine besonderen Highlights erkannt.</span>
+                                            }
+                                        </div>
+
+                                        <div class="col-md-6">
+                                            <div class="small fw-bold text-danger mb-1">⚠ Potenzielle Red Flags / Rückfragen</div>
+                                            @if (app.AiInsights.PotentialRedFlags.Any())
+                                            {
+                                                <ul class="small mb-0 ps-3 text-danger-emphasis">
+                                                    @foreach (var flag in app.AiInsights.PotentialRedFlags)
+                                                    {
+                                                        <li>@flag</li>
+                                                    }
+                                                </ul>
+                                            }
+                                            else
+                                            {
+                                                <span class="small text-muted fst-italic">Keine Risiken identifiziert.</span>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                    rank++;
+                }
+            </div>
+        </div>
+
+@code {
+    private const string ListingId = "IMMO-24-9981";
+    private RecommendationTier? _selectedTier = null;
+    private string _searchTerm = string.Empty;
+    private bool _isSimulating = false;
+    private readonly HashSet<Guid> _expandedIds = [];
+    private IReadOnlyList<ApplicationEvaluationResult> _applicants = [];
+
+    protected override void OnInitialized()
+    {
+        LoadApplicants();
+        if (_applicants.Any())
+            _expandedIds.Add(_applicants.First().ApplicationId);
+    }
+
+    private void LoadApplicants() => _applicants = Repo.GetByListing(ListingId);
+
+    private async Task SimulateIncomingApplicantAsync()
+    {
+        _isSimulating = true;
+
+        var criteria = new PropertyCriteria(ListingId, "Helle 3-Zimmer-Altbauwohnung", 1350m, false, 3);
+        var dummyRequest = new ApplicantSubmissionRequest(
+            ApplicantName: $"Elena Rostova (Live #{Random.Shared.Next(10, 99)})",
+            Email: "e.rostova@example.de",
+            InquiryMessage: "Hallo! Ich suche langfristig eine ruhige Wohnung als Nichtraucher. Ich arbeite als Senior Software Architect in unbefristeter Stellung und habe alle Dokumente inkl. Schufa bereits hochgeladen.",
+            Disclosure: new SelfDisclosure(
+                MonthlyNetIncome: Random.Shared.Next(3800, 5600),
+                EmploymentType: "Unbefristet",
+                SchufaStatus: CreditStatus.Positive,
+                HouseholdSize: 1,
+                HasPets: false,
+                IsSmoker: false,
+                AllDocumentsUploaded: true
+            ),
+            TargetProperty: criteria
+        );
+
+        var result = await Pipeline.ProcessApplicationAsync(dummyRequest);
+        Repo.Save(result);
+        LoadApplicants();
+
+        _expandedIds.Clear();
+        _expandedIds.Add(result.ApplicationId);
+        _isSimulating = false;
+    }
+
+    private IEnumerable<ApplicationEvaluationResult> FilteredApplicants =>
+        _applicants
+            .Where(a => _selectedTier is null || a.Recommendation == _selectedTier)
+            .Where(a => string.IsNullOrWhiteSpace(_searchTerm)
+                     || a.ApplicantName.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)
+                     || a.AiInsights.Summary.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(a => a.TotalScore);
+
+    private void ToggleDetails(Guid id)
+    {
+        if (!_expandedIds.Remove(id))
+            _expandedIds.Add(id);
+    }
+
+    private string GetFilterBtnClass(RecommendationTier? tier) =>
+        _selectedTier == tier ? "btn-dark" : "btn-outline-secondary";
+
+    private static string GetScoreBadgeClass(int score) => score switch
+    {
+        >= 80 => "bg-success",
+        >= 55 => "bg-warning text-dark",
+        _ => "bg-danger"
+    };
+
+    private static string GetScoreTextColor(int score) => score switch
+    {
+        >= 80 => "text-success",
+        >= 55 => "text-warning-emphasis",
+        _ => "text-danger"
+    };
+
+    private static string GetBorderColor(RecommendationTier tier) => tier switch
+    {
+        RecommendationTier.TopCandidate => "border-success",
+        RecommendationTier.ReviewManually => "border-warning",
+        _ => "border-danger"
+    };
+
+    private static RenderFragment RenderTierBadge(RecommendationTier tier) => tier switch
+    {
+    RecommendationTier.TopCandidate => @<span
+    class="badge bg-success-subtle text-success border border-success-subtle fw-normal"
+    style="font-size: 0.7rem;">Top-Match</span>,
+    RecommendationTier.ReviewManually => @<span
+        class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle fw-normal"
+        style="font-size: 0.7rem;">Prüfen</span>,
+        _ => @<span class="badge bg-danger-subtle text-danger border border-danger-subtle fw-normal"
+                    style="font-size: 0.7rem;">K.O.-Kriterium</span>
+        };
+    }
