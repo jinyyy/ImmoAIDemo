@@ -19,7 +19,7 @@ Wenn du dieses Repository direkt ausführen möchtest:
 
 ```bash
 # 1. Repository klonen
-git clone [https://github.com/](https://github.com/)jinyyy/ImmoAiDemo.git
+git clone https://github.com/jinyyy/ImmoAIDemo.git
 cd ImmoAiDemo
 
 # 2. In VS Code öffnen
